@@ -77,7 +77,7 @@ class UI:
         Places the units on the board.
         """
         # Place the units on the board
-        for unit in self.board.pieces:
+        for unit in self.board.pieces.values():
             position = unit.position
             letter = unit.basemodel[0].upper()
             self.draw_circle_with_letter(position, letter)
