@@ -7,8 +7,7 @@ board= engine.Board([8,8], game)
 ui = gameUI.UI(board)
 
 
-dude = engine.Unit(game, 'Dude')
-game.add_piece(dude, [5,3])
+dude = engine.Unit(game, 'Dude',[5,3])
 
 homo = engine.Unit(game, 'Homo', position=[2,3])
 
