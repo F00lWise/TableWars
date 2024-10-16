@@ -57,8 +57,7 @@ class Piece:
             yield f'p{i}'
             i += 1
 
-class UnitStatArray(TypedDict):
-    game_system: str
+
     
 
 # General unit class
@@ -69,10 +68,13 @@ class Unit(Piece):
         self.basemodel = basemodel
 
         self.health = None
-        self.stats = UnitStatArray()
         self.actions = []
         self.reactions = []
         self.abilities = []
+        self.movement = 0
+        
+    def get_fields_in_range(self, rangeparam='movement'):
+        return self.game.board.in_range(self.position, self.__getattribute__(rangeparam))
 
 
 class Board:
@@ -114,28 +116,41 @@ class Board:
             return False
 
 
-    def in_range(self, origin, range):
+    def in_range(self, origin, range, type_of_interest = 'Any'):
         """
-        Returns a of all pieces in range of the origin.
+        Returns a list of coordinates of pieces within range of the origin
+
+        origin: The origin of the range
+        range: The range of the origin
+        type_of_interest: The type of pieces to consider. Can be 'Any', 'Unit', 'Piece'
         """
+        def is_type_of_interest(piece):
+            match type_of_interest:
+                case 'Any':
+                    return True
+                case 'Unit':
+                    return isinstance(piece, Unit)
+                case 'Piece':
+                    return isinstance(piece, Piece)
+
         # First, get the rectangular box around the origin
-        x_range = self.x[(self.x >= origin[0] - range[0])&
-                         (self.x<=origin[0] - range[0])]
-        y_range = self.y[(self.y >= origin[1] - range[1])&
-                            (self.y<=origin[1] - range[1])]
+        x_range = self.x[(self.x >= origin[0] - range)&
+                         (self.x<=origin[0] + range)]
+        y_range = self.y[(self.y >= origin[1] - range)&
+                            (self.y<=origin[1] + range)]
         
         # Then, check if the pieces in the box are within range
         in_range = []
         for x in x_range:
             for y in y_range:
-                if self.map[x,y] is not None:
+                if is_type_of_interest(self.map[x,y]):
                     # omit self
                     if x == origin[0] and y == origin[1]:
                         continue
                     #calculate actual distance
                     distance = np.sqrt((x-origin[0])**2 + (y-origin[1])**2)
                     if distance <= range:
-                        in_range.append(self.map[x,y])
+                        in_range.append((x,y))
         return in_range
         
 

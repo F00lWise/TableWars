@@ -11,6 +11,6 @@ dude = engine.Unit(game, 'Dude',[5,3])
 dude.movement = 3
 
 homo = engine.Unit(game, 'Homo', position=[2,3])
+homo.movement = 5
 
-#homo.place([1,3])
 ui.run()

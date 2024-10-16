@@ -1,3 +1,16 @@
+
+# TODO: Make unit tests?
+# TODO: Select units
+# TODO: Refresh full screen always?
+# TODO: Grid vs continuous?
+
+# Implementation
+
+## Controlling units
+I imagine that I select a unit on the board with the mouse.
+If the mouse hovers over a selectable unit, it is highlighted in light green. If I click on it, it is selected and I can give commands. The available commands are diplayed next to the game board.
+
+
 # Project plan
 
 ## General outline

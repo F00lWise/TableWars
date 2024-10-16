@@ -5,6 +5,10 @@ import engine
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+YELLOW = (255, 255, 0)
+BLUE = (0, 0, 255)
+
 
 # Set up fonts
 font_size = 50
@@ -13,38 +17,59 @@ pygame.init()
 
 class UI:                                                                                                    
     def __init__(self, board: engine.Board):
-        """
-        Initializes the game UI.
-        Args:
-            board (engine.Board): The game board object containing the size of the board.
-        Attributes:
-            SCREEN_WIDTH (int): The width of the game screen.
-            SCREEN_HEIGHT (int): The height of the game screen.
-            BOARD_WIDTH (int): The width of the game board on the screen.
-            BOARD_HEIGHT (int): The height of the game board on the screen.
-            screen (pygame.Surface): The Pygame surface representing the game screen.
-        """
-        self.board = board
-        self.running = False
-        
-        pygame.display.set_caption("Table Wars")
+            """
+            Initializes the game UI and generates Rect objects for each grid coordinate.
+            Args:
+                board (engine.Board): The game board object containing the size of the board.
+            Attributes:
+                SCREEN_WIDTH (int): The width of the game screen.
+                SCREEN_HEIGHT (int): The height of the game screen.
+                BOARD_WIDTH (int): The width of the game board on the screen.
+                BOARD_HEIGHT (int): The height of the game board on the screen.
+                screen (pygame.Surface): The Pygame surface representing the game screen.
+                grid_rects (list of list of pygame.Rect): A 2D list storing Rect objects for each grid cell.
+            """
+            self.board = board
+            self.running = False            
+            self.unit_selected = None
 
-        # Define the size of the screen
-        self.SCREEN_WIDTH = 800
-        self.SCREEN_HEIGHT = 600
+            pygame.display.set_caption("Table Wars")
 
-        # Define the size of the board on the screen. The remainder is reserved for controls and uncommitted figures
-        self.BOARD_WIDTH = 600
-        self.BOARD_HEIGHT = 600
+            # Define the size of the screen
+            self.SCREEN_WIDTH = 800
+            self.SCREEN_HEIGHT = 600
 
-        board_image_filename = self.save_board_image()
-        self.board_image = pygame.image.load(board_image_filename)
-        self.reset_screen()
+            # Define the size of the board on the screen. The remainder is reserved for controls and uncommitted figures
+            self.BOARD_WIDTH = 600
+            self.BOARD_HEIGHT = 600
+
+            # Define the number of squares in the grid
+            self.rows, self.columns = self.board.size
+
+            # Define the size of each square
+            self.square_width = self.BOARD_WIDTH // self.columns
+            self.square_height = self.BOARD_HEIGHT // self.rows
+
+            # Load the pre-saved board image
+            board_image_filename = self.save_board_image()
+            self.board_image = pygame.image.load(board_image_filename)
+            self.reset_screen()
 
 
-        # Update the screen
-        pygame.display.flip()
+            # Initialize grid_rects to store the Rect objects for each grid cell
+            self.grid_rects = [[None for _ in range(self.columns)] for _ in range(self.rows)]
 
+            # Generate Rect objects for each grid cell
+            for row in range(self.rows):
+                for col in range(self.columns):
+                    # Calculate the top-left corner of each grid square
+                    top_left_x = col * self.square_width
+                    top_left_y = row * self.square_height
+                    # Create the Rect object
+                    self.grid_rects[row][col] = pygame.Rect(top_left_x, top_left_y, self.square_width, self.square_height)
+
+            # Update the screen
+            pygame.display.flip()
 
     def save_board_image(self, filename="temp/board_grid.png"):
 
@@ -54,16 +79,9 @@ class UI:
         # Set the background color (olive green for the board)
         board_surface.fill((128, 128, 0))
 
-        # Define the number of squares in the grid
-        rows, columns = self.board.size
-
-        # Define the size of each square
-        self.square_width = self.BOARD_WIDTH // columns
-        self.square_height = self.BOARD_HEIGHT // rows
-
         # Draw the grid on the board surface
-        for i in range(rows):
-            for j in range(columns):
+        for i in range(self.rows):
+            for j in range(self.columns):
                 pygame.draw.rect(board_surface, (255, 255, 255), 
                                 (j * self.square_width, i * self.square_height, self.square_width, self.square_height), 1)
 
@@ -111,14 +129,35 @@ class UI:
             # Place the units on the board
             self.show_pieces()
 
+            # # Test highlighting
+            # self.highlight_square([2,3],(255,0,0), pixel_inwards=3)
+            # for piece in self.board.pieces.items():
+            #     if isinstance(piece,engine.Unit):
+            #         self.highlight_movement(piece)
+
             # Get mouse position
             mouse_pos = pygame.mouse.get_pos()
 
-            # Test highlighting
-            self.highlight_square([2,3],(255,0,0))
-            for piece in self.board.pieces.items():
-                if isinstance(piece,engine.Unit):
-                    self.highlight_movement(piece)
+            # Loop over each grid cell and check for collision
+            for row in range(len(self.grid_rects)):
+                for col in range(len(self.grid_rects[row])):
+                    if self.grid_rects[row][col].collidepoint(mouse_pos):
+
+                        # Highlight the square
+                        if self.board.map[row, col] is None:
+                            self.highlight_square((row, col), GREEN)
+                        else:
+                            self.highlight_square((row, col), YELLOW, pixel_inwards=3)
+                            
+                            # If clicked on the unit, select it
+                            if pygame.mouse.get_pressed()[0]:
+                                self.unit_selected = self.board.map[row, col]
+            
+            # Highlight the selected unit
+            if self.unit_selected:
+                self.highlight_square(self.unit_selected.position, RED, pixel_inwards=0)
+                self.highlight_movement(self.unit_selected)
+
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -168,7 +207,7 @@ class UI:
         # Blit the text onto the circle
         self.screen.blit(text_surface, text_rect)
 
-    def highlight_square(self, grid_position, color):
+    def highlight_square(self, grid_position, color, pixel_inwards=0):
         """
         Highlights a grid square with a specific color.
         
@@ -180,14 +219,14 @@ class UI:
         row, col = grid_position
         
         # Calculate the top-left corner of the grid square
-        top_left = (col * self.square_width, row * self.square_height)
+        top_left = (col * self.square_width + pixel_inwards, row * self.square_height + pixel_inwards)
         
         # Draw a rectangle to highlight the square
-        pygame.draw.rect(self.screen, color, (*top_left, self.square_width, self.square_height), 3)
+        pygame.draw.rect(self.screen, color, (*top_left, self.square_width-2*pixel_inwards, self.square_height-2*pixel_inwards), 3)
 
     def highlight_movement(self, unit:engine.Unit):
         fields = unit.get_fields_in_range()
         for field in fields:
-            self.highlight_square(field, WHITE)
+            self.highlight_square(field, BLUE, pixel_inwards=5)
 
 
