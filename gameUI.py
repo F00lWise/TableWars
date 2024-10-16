@@ -25,6 +25,8 @@ class UI:
             screen (pygame.Surface): The Pygame surface representing the game screen.
         """
         self.board = board
+        self.running = False
+        
         pygame.display.set_caption("Table Wars")
 
         # Define the size of the screen
@@ -35,42 +37,60 @@ class UI:
         self.BOARD_WIDTH = 600
         self.BOARD_HEIGHT = 600
 
+        board_image_filename = self.save_board_image()
+        self.board_image = pygame.image.load(board_image_filename)
         self.reset_screen()
 
 
         # Update the screen
         pygame.display.flip()
-    
-    def reset_screen(self):
-        """
-        Resets the screen by filling it with the olive green color for the board area.
-        """
-        # create the screen
-        self.screen = pygame.display.set_mode((self.SCREEN_WIDTH, self.SCREEN_HEIGHT))
 
-        # Draw a line to separate the board from the controls
-        pygame.draw.line(self.screen, (0, 0, 0), (self.BOARD_WIDTH, 0), (self.BOARD_WIDTH, self.SCREEN_HEIGHT))
 
-        # Make an olive green background color for the board area of the screen
-        self.screen.fill((128, 128, 0))
+    def save_board_image(self, filename="temp/board_grid.png"):
 
-        # The control area of the screen is white
-        pygame.draw.rect(self.screen, (255, 255, 255), (self.BOARD_WIDTH, 0, self.SCREEN_WIDTH - self.BOARD_WIDTH, self.SCREEN_HEIGHT))
+        # Create a temporary surface to draw the board and grid
+        board_surface = pygame.Surface((self.BOARD_WIDTH, self.BOARD_HEIGHT))
 
-        ## Create a grid according to the size of the board
+        # Set the background color (olive green for the board)
+        board_surface.fill((128, 128, 0))
+
         # Define the number of squares in the grid
-        rows = self.board.size[0]
-        columns = self.board.size[1]
+        rows, columns = self.board.size
 
         # Define the size of each square
         self.square_width = self.BOARD_WIDTH // columns
         self.square_height = self.BOARD_HEIGHT // rows
 
-        # Draw the grid
+        # Draw the grid on the board surface
         for i in range(rows):
             for j in range(columns):
-                pygame.draw.rect(self.screen, (255, 255, 255), (j * self.square_width, i * self.square_height, self.square_width, self.square_height), 1)
+                pygame.draw.rect(board_surface, (255, 255, 255), 
+                                (j * self.square_width, i * self.square_height, self.square_width, self.square_height), 1)
 
+        # Save the board image to a file (PNG format)
+        pygame.image.save(board_surface, filename)
+        return filename
+
+
+    def reset_screen(self):
+        """
+        Resets the screen by loading the pre-saved board image.
+        """
+        # Create the screen
+        self.screen = pygame.display.set_mode((self.SCREEN_WIDTH, self.SCREEN_HEIGHT))
+
+        # Draw a line to separate the board from the controls
+        pygame.draw.line(self.screen, (0, 0, 0), (self.BOARD_WIDTH, 0), (self.BOARD_WIDTH, self.SCREEN_HEIGHT))
+
+        # Blit (draw) the board image onto the screen
+        self.screen.blit(self.board_image, (0, 0))
+
+        # The control area of the screen is white
+        pygame.draw.rect(self.screen, (255, 255, 255), (self.BOARD_WIDTH, 0, self.SCREEN_WIDTH - self.BOARD_WIDTH, self.SCREEN_HEIGHT))
+
+        # Update the screen to display the changes
+        pygame.display.flip()
+    
 
     def show_pieces(self):
         """
@@ -83,17 +103,26 @@ class UI:
             self.draw_circle_with_letter(position, letter)
 
     def run(self):
-        running = True
-        while running:
+        self.running = True
+        while self.running:
             # Re-set the board
             self.reset_screen()
 
             # Place the units on the board
             self.show_pieces()
 
+            # Get mouse position
+            mouse_pos = pygame.mouse.get_pos()
+
+            # Test highlighting
+            self.highlight_square([2,3],(255,0,0))
+            for piece in self.board.pieces.items():
+                if isinstance(piece,engine.Unit):
+                    self.highlight_movement(piece)
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    running = False
+                    self.running = False
 
             # update the screen
             pygame.display.flip()
@@ -139,6 +168,26 @@ class UI:
         # Blit the text onto the circle
         self.screen.blit(text_surface, text_rect)
 
+    def highlight_square(self, grid_position, color):
+        """
+        Highlights a grid square with a specific color.
+        
+        Args:
+            grid_position (tuple): The (row, column) position in the grid.
+            color (tuple): The color to use for highlighting.
+        """
 
+        row, col = grid_position
+        
+        # Calculate the top-left corner of the grid square
+        top_left = (col * self.square_width, row * self.square_height)
+        
+        # Draw a rectangle to highlight the square
+        pygame.draw.rect(self.screen, color, (*top_left, self.square_width, self.square_height), 3)
+
+    def highlight_movement(self, unit:engine.Unit):
+        fields = unit.get_fields_in_range()
+        for field in fields:
+            self.highlight_square(field, WHITE)
 
 
