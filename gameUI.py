@@ -16,7 +16,7 @@ font_size = 50
 pygame.init()
 
 class UI:                                                                                                    
-    def __init__(self, board: engine.Board):
+    def __init__(self, board: engine.Board, api: engine.GameAPI):
             """
             Initializes the game UI and generates Rect objects for each grid coordinate.
             Args:
@@ -32,20 +32,18 @@ class UI:
             self.board = board
             self.running = False            
             self.unit_selected = None
+            self.api = api
 
             pygame.display.set_caption("Table Wars")
 
             # Define the size of the screen
             self.SCREEN_WIDTH = 800
             self.SCREEN_HEIGHT = 600
-
             # Define the size of the board on the screen. The remainder is reserved for controls and uncommitted figures
             self.BOARD_WIDTH = 600
             self.BOARD_HEIGHT = 600
-
             # Define the number of squares in the grid
             self.rows, self.columns = self.board.size
-
             # Define the size of each square
             self.square_width = self.BOARD_WIDTH // self.columns
             self.square_height = self.BOARD_HEIGHT // self.rows
@@ -55,21 +53,44 @@ class UI:
             self.board_image = pygame.image.load(board_image_filename)
             self.reset_screen()
 
+            self.create_grid_rects()
+            self.update_unit_rects()
 
-            # Initialize grid_rects to store the Rect objects for each grid cell
-            self.grid_rects = [[None for _ in range(self.columns)] for _ in range(self.rows)]
+            # Set up font for displaying text
+            self.font = pygame.font.SysFont(None, 30)
 
-            # Generate Rect objects for each grid cell
-            for row in range(self.rows):
-                for col in range(self.columns):
-                    # Calculate the top-left corner of each grid square
-                    top_left_x = col * self.square_width
-                    top_left_y = row * self.square_height
-                    # Create the Rect object
-                    self.grid_rects[row][col] = pygame.Rect(top_left_x, top_left_y, self.square_width, self.square_height)
+            # Action buttons
+            self.buttons = []
 
             # Update the screen
             pygame.display.flip()
+
+    def create_grid_rects(self):
+        # Initialize grid_rects to store the Rect objects for each grid cell
+        self.grid_rects = [[None for _ in range(self.columns)] for _ in range(self.rows)]
+        # Generate Rect objects for each grid cell
+        for row in range(self.rows):
+            for col in range(self.columns):
+                # Calculate the top-left corner of each grid square
+                top_left_x = col * self.square_width
+                top_left_y = row * self.square_height
+                # Create the Rect object
+                self.grid_rects[row][col] = pygame.Rect(top_left_x, top_left_y, self.square_width, self.square_height)
+
+    def update_unit_rects(self):
+        """
+        Generates Rect objects for each unit on the board.
+        """
+        # Generate Rect objects for each unit
+        for unit in self.board.pieces.values():
+            unit.rect = None
+            if unit.clickable:
+                row, col = unit.position
+                # Calculate the top-left corner of the grid square
+                top_left_x = col * self.square_width
+                top_left_y = row * self.square_height
+                # Create the Rect object
+                unit.rect = pygame.Rect(top_left_x, top_left_y, self.square_width, self.square_height)
 
     def save_board_image(self, filename="temp/board_grid.png"):
 
@@ -88,7 +109,6 @@ class UI:
         # Save the board image to a file (PNG format)
         pygame.image.save(board_surface, filename)
         return filename
-
 
     def reset_screen(self):
         """
@@ -109,7 +129,6 @@ class UI:
         # Update the screen to display the changes
         pygame.display.flip()
     
-
     def show_pieces(self):
         """
         Places the units on the board.
@@ -117,7 +136,7 @@ class UI:
         # Place the units on the board
         for unit in self.board.pieces.values():
             position = unit.position
-            letter = unit.basemodel[0].upper()
+            letter = unit.name[0].upper()
             self.draw_circle_with_letter(position, letter)
 
     def run(self):
@@ -129,39 +148,29 @@ class UI:
             # Place the units on the board
             self.show_pieces()
 
-            # # Test highlighting
-            # self.highlight_square([2,3],(255,0,0), pixel_inwards=3)
-            # for piece in self.board.pieces.items():
-            #     if isinstance(piece,engine.Unit):
-            #         self.highlight_movement(piece)
+            # Display game info and action buttons
+            self.draw_game_info()
+            self.draw_action_buttons()
+
 
             # Get mouse position
             mouse_pos = pygame.mouse.get_pos()
 
-            # Loop over each grid cell and check for collision
-            for row in range(len(self.grid_rects)):
-                for col in range(len(self.grid_rects[row])):
-                    if self.grid_rects[row][col].collidepoint(mouse_pos):
-
-                        # Highlight the square
-                        if self.board.map[row, col] is None:
-                            self.highlight_square((row, col), GREEN)
-                        else:
-                            self.highlight_square((row, col), YELLOW, pixel_inwards=3)
-                            
-                            # If clicked on the unit, select it
-                            if pygame.mouse.get_pressed()[0]:
-                                self.unit_selected = self.board.map[row, col]
+            self.highlight_hovered_square(mouse_pos)
+            self.update_unit_rects()
             
             # Highlight the selected unit
             if self.unit_selected:
                 self.highlight_square(self.unit_selected.position, RED, pixel_inwards=0)
                 self.highlight_movement(self.unit_selected)
 
-
+            # Check for mouse clicks on buttons
             for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.running = False
+                match event.type:
+                    case  pygame.MOUSEBUTTONDOWN:
+                        self.handle_mouse_click(pygame.mouse.get_pos())
+                    case pygame.QUIT:
+                        self.running = False
 
             # update the screen
             pygame.display.flip()
@@ -171,6 +180,17 @@ class UI:
 
         pygame.quit()
 
+    def highlight_hovered_square(self, mouse_pos):
+                    # Loop over each grid cell and check for collision
+            for row in range(len(self.grid_rects)):
+                for col in range(len(self.grid_rects[row])):
+                    if self.grid_rects[row][col].collidepoint(mouse_pos):
+
+                        # Highlight the square
+                        if self.board.map[row, col] is None:
+                            self.highlight_square((row, col), GREEN)
+                        else:
+                            self.highlight_square((row, col), YELLOW, pixel_inwards=3)
     # Function to draw a circle with a letter in a specific grid square
     def draw_circle_with_letter(self,  grid_position, letter,
                                  font=pygame.font.SysFont(None, font_size),
@@ -229,4 +249,68 @@ class UI:
         for field in fields:
             self.highlight_square(field, BLUE, pixel_inwards=5)
 
+    def draw_text(self, text, pos, color=BLACK):
+        """
+        Draw text on the screen at the specified position.
+        """
+        text_surface = self.font.render(text, True, color)
+        self.screen.blit(text_surface, pos)
 
+    def create_button(self, text, rect, callback):
+        """
+        Create a button with a callback when clicked.
+        """
+        pygame.draw.rect(self.screen, GREEN, rect)
+        self.draw_text(text, (rect.x + 5, rect.y + 5))
+        self.buttons.append((rect, callback))
+
+    def draw_game_info(self):
+        """
+        Display the current game turn, active player, and selected unit.
+        """
+        # Display game turn
+        self.draw_text(f"Turn: {self.api.rule_system.game_turn}", (620, 10))
+        
+        # Display active player
+        self.draw_text(f"Player: {self.api.rule_system.active_player}", (620, 40))
+        
+        # Display selected unit if any
+        if self.unit_selected:
+            self.draw_text(f"Selected Unit: {self.unit_selected.name}", (620, 70))
+        else:
+            self.draw_text("Selected Unit: None", (620, 70))
+
+    def draw_action_buttons(self):
+        """
+        Draw the available action buttons based on the game state.
+        """
+        self.buttons.clear()
+        available_actions = self.api.get_available_actions()
+
+        y_offset = 110  # Starting y position for the buttons
+        for action in available_actions:
+            button_rect = pygame.Rect(620, y_offset, 150, 30)
+            self.create_button(action, button_rect, lambda act=action: self.api.apply_action(act))
+            y_offset += 40
+
+    def handle_mouse_click(self, pos):
+        """
+        Check if any buttons are clicked.
+        """
+        # Check if a button is clicked
+        for button, callback in self.buttons:
+            if button.collidepoint(pos):
+                callback()
+        # Check if a unit is clicked
+        for unit in self.board.pieces.values():
+            if unit.clickable and unit.rect.collidepoint(pos):
+                self.unit_selected = unit
+                print(f'Selected unit: {unit}')
+        
+        # # Check if a grid square is clicked
+        # for row in range(len(self.grid_rects)):
+        #     for col in range(len(self.grid_rects[row])):
+        #         if self.grid_rects[row][col].collidepoint(pos):
+        #             # If clicked on the unit, select it
+        #             if self.board.map[row, col]:
+        #                 self.unit_selected = self.board.map[row, col]

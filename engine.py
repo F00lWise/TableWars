@@ -1,5 +1,6 @@
 import numpy as np
-from typing import TypedDict
+from typing import TypedDict, List, Tuple, Dict, Generator, Any
+from abc import ABC, abstractmethod
 
 
 class Game:
@@ -24,18 +25,22 @@ class Game:
 
 
 class Piece:
-    def __init__(self, game, position = None, height = 0, extent=[0,0]):
+    def __init__(self, game, name, position = None, height = 0, extent=[0,0]):
         """
         position: The position of the piece on the board
         height: The height of the piece
         extent: The extent of the piece, given a list of coordinates relative to the position
         """
+        self.name = name
         self.position = position # for larger models, the position is the bottom left corner
         self.height = height
         self.extent = extent 
         self.id = Piece.make_id()
         self.game = game
         self.board = self.game.board
+        self.clickable = False
+        self.rect = None
+
         if position is not None:
             self.place(position)
 
@@ -56,22 +61,20 @@ class Piece:
         while True:
             yield f'p{i}'
             i += 1
-
-
     
 
 # General unit class
-class Unit(Piece):
+class Unit(Piece,ABC):
     
-    def __init__(self, game: Game, basemodel: str, position = None,  img = None):
-        super().__init__(game, position=position)
-        self.basemodel = basemodel
+    def __init__(self, game: Game, name: str, position = None,  img = None):
+        super().__init__(game, name=name,position=position)
 
         self.health = None
         self.actions = []
         self.reactions = []
         self.abilities = []
         self.movement = 0
+        self.clickable = True
         
     def get_fields_in_range(self, rangeparam='movement'):
         return self.game.board.in_range(self.position, self.__getattribute__(rangeparam))
@@ -154,5 +157,100 @@ class Board:
         return in_range
         
 
+class RuleSystem(ABC):
+    def __init__(self, game: 'Game'):
+        self.game = game
+        self.game_turn = 0
+        self.active_player = None
+
+    @abstractmethod
+    def game_sequence(self) -> Generator[Any, None, None]:
+        """
+        A generator that defines the sequence of steps in the game.
+        Yields the next step in the game.
+        """
+        pass
+
+    # @abstractmethod
+    # def get_available_actions(self, unit) -> list:
+    #     pass
+
+    @abstractmethod
+    def check_game_over(self) -> bool:
+        pass
+class GameAPI:
+    def __init__(self, game: 'Game', rule_system: RuleSystem):
+        """
+        Initializes the API that mediates interactions between the UI/AI and the game engine.
+        
+        Args:
+            game (Game): The Game object that contains the current state of the game.
+        """
+        self.game = game
+        self.board = game.board
+        self.controlled_unit = None
+        self.rule_system = rule_system
+        self.sequence = self.rule_system.game_sequence()  # Get the game sequence generator
+
+    def set_controlled_unit(self, unit: Unit):
+        """
+        Sets the current controlled unit (either by the player or the AI).
+        
+        Args:
+            unit (Unit): The unit to be controlled.
+        """
+        if isinstance(unit, Unit):
+            self.controlled_unit = unit
+        else:
+            raise ValueError("The controlled unit must be a valid Unit object.")
+    
+    def get_available_actions(self):
+        """
+        Return available actions based on the current game state.
+        """
+        actions = []
+        
+        if self.controlled_unit:
+            # If a unit is activated, show actions for the unit
+            actions = ["Hold", "Advance", "Rush", "Charge"]
+        else:
+            # If no unit is selected or active, allow unit selection
+            actions = ["Select Unit"]
+        
+        return actions
+    
+    def apply_action(self, action: str, target=None):
+        """
+        Apply the selected action to the controlled unit.
+        """
+        if action == "Select Unit":
+            # Logic for selecting a unit (e.g., from available ones)
+            self.controlled_unit = self.select_unit_to_activate()
+        elif action == "Hold":
+            print(f"{self.controlled_unit} holds position.")
+        elif action == "Advance":
+            print(f"{self.controlled_unit} advances.")
+        elif action == "Rush":
+            print(f"{self.controlled_unit} rushes.")
+        elif action == "Charge":
+            print(f"{self.controlled_unit} charges.")
+        else:
+            raise ValueError(f"Unknown action: {action}")
+            
+    def clear_controlled_unit(self):
+        """
+        Clears the currently controlled unit.
+        """
+        self.controlled_unit = None
+
+    def next_step(self) -> str:
+        """
+        Advances the game by processing the next step in the sequence.
+        """
+        try:
+            step = next(self.sequence)
+            return step
+        except StopIteration:
+            return "Game finished"
 
         
