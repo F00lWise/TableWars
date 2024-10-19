@@ -36,17 +36,20 @@ class UI:
 
             pygame.display.set_caption("Table Wars")
 
-            # Define the size of the screen
-            self.SCREEN_WIDTH = 800
-            self.SCREEN_HEIGHT = 600
+
+            # Set up the game screen (make it resizable)
+            self.screen = pygame.display.set_mode((800, 600), pygame.RESIZABLE)
+            # Track screen dimensions
+            self.screen_width, self.screen_height = pygame.display.get_surface().get_size()
+
             # Define the size of the board on the screen. The remainder is reserved for controls and uncommitted figures
-            self.BOARD_WIDTH = 600
-            self.BOARD_HEIGHT = 600
+            self.board_width = self.screen_height
+            self.board_height = self.screen_height
             # Define the number of squares in the grid
             self.rows, self.columns = self.board.size
             # Define the size of each square
-            self.square_width = self.BOARD_WIDTH // self.columns
-            self.square_height = self.BOARD_HEIGHT // self.rows
+            self.square_width = self.board_width // self.columns
+            self.square_height = self.board_height // self.rows
 
             # Load the pre-saved board image
             board_image_filename = self.save_board_image()
@@ -92,10 +95,17 @@ class UI:
                 # Create the Rect object
                 unit.rect = pygame.Rect(top_left_x, top_left_y, self.square_width, self.square_height)
 
+    def relpos_to_pix(self, x_ratio, y_ratio):
+        """
+        Get a position on the screen relative to the screen width and height.
+        x_ratio and y_ratio are the percentage positions (0.0 to 1.0).
+        """
+        return (int(self.screen_width * x_ratio), int(self.screen_height * y_ratio))
+
     def save_board_image(self, filename="temp/board_grid.png"):
 
         # Create a temporary surface to draw the board and grid
-        board_surface = pygame.Surface((self.BOARD_WIDTH, self.BOARD_HEIGHT))
+        board_surface = pygame.Surface((self.board_width, self.board_height))
 
         # Set the background color (olive green for the board)
         board_surface.fill((128, 128, 0))
@@ -115,16 +125,16 @@ class UI:
         Resets the screen by loading the pre-saved board image.
         """
         # Create the screen
-        self.screen = pygame.display.set_mode((self.SCREEN_WIDTH, self.SCREEN_HEIGHT))
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
 
         # Draw a line to separate the board from the controls
-        pygame.draw.line(self.screen, (0, 0, 0), (self.BOARD_WIDTH, 0), (self.BOARD_WIDTH, self.SCREEN_HEIGHT))
+        pygame.draw.line(self.screen, (0, 0, 0), (self.board_width, 0), (self.board_width, self.screen_height))
 
         # Blit (draw) the board image onto the screen
         self.screen.blit(self.board_image, (0, 0))
 
         # The control area of the screen is white
-        pygame.draw.rect(self.screen, (255, 255, 255), (self.BOARD_WIDTH, 0, self.SCREEN_WIDTH - self.BOARD_WIDTH, self.SCREEN_HEIGHT))
+        pygame.draw.rect(self.screen, (255, 255, 255), (self.board_width, 0, self.screen_width - self.board_width, self.screen_height))
 
         # Update the screen to display the changes
         pygame.display.flip()
@@ -152,7 +162,6 @@ class UI:
             self.draw_game_info()
             self.draw_action_buttons()
 
-
             # Get mouse position
             mouse_pos = pygame.mouse.get_pos()
 
@@ -171,7 +180,8 @@ class UI:
                         self.handle_mouse_click(pygame.mouse.get_pos())
                     case pygame.QUIT:
                         self.running = False
-
+                    case pygame.VIDEORESIZE:
+                        self.handle_resize(event)
             # update the screen
             pygame.display.flip()
 
@@ -267,32 +277,70 @@ class UI:
     def draw_game_info(self):
         """
         Display the current game turn, active player, and selected unit.
+        Position the text relative to the screen size.
         """
+        # Get relative positions for the text
+        turn_pos = self.relpos_to_pix(0.8, 0.05)  # 80% width, 5% height
+        player_pos = self.relpos_to_pix(0.8, 0.1)  # 80% width, 10% height
+        unit_pos = self.relpos_to_pix(0.8, 0.15)   # 80% width, 15% height
+
         # Display game turn
-        self.draw_text(f"Turn: {self.api.rule_system.game_turn}", (620, 10))
+        self.draw_text(f"Turn: {self.api.rule_system.game_turn}", turn_pos)
         
         # Display active player
-        self.draw_text(f"Player: {self.api.rule_system.active_player}", (620, 40))
+        self.draw_text(f"Player: {self.api.rule_system.active_player}", player_pos)
         
         # Display selected unit if any
         if self.unit_selected:
-            self.draw_text(f"Selected Unit: {self.unit_selected.name}", (620, 70))
+            self.draw_text(f"Selected Unit: {self.unit_selected.name}", unit_pos)
         else:
-            self.draw_text("Selected Unit: None", (620, 70))
+            self.draw_text("Selected Unit: None", unit_pos)
+
 
     def draw_action_buttons(self):
         """
         Draw the available action buttons based on the game state.
+        The buttons are positioned relative to the screen size.
         """
         self.buttons.clear()
         available_actions = self.api.get_available_actions()
 
-        y_offset = 110  # Starting y position for the buttons
-        for action in available_actions:
-            button_rect = pygame.Rect(620, y_offset, 150, 30)
-            self.create_button(action, button_rect, lambda act=action: self.api.apply_action(act))
-            y_offset += 40
+        # Start y position at 20% of the screen height, and increment by 5% for each button
+        y_offset = 0.2
 
+        for action in available_actions:
+            button_rect = pygame.Rect(
+                int(self.screen_width * 0.75),     # 75% of the screen width
+                int(self.screen_height * y_offset), # Start y offset, increasing
+                int(self.screen_width * 0.2),      # Button width (20% of screen width)
+                int(self.screen_height * 0.05)     # Button height (5% of screen height)
+            )
+            self.create_button(action, button_rect, lambda act=action: self.api.apply_action(act))
+            y_offset += 0.06  # Move down by 6% for the next button
+
+    def handle_resize(self, event):
+        """
+        Handle screen resize events.
+        """
+        self.screen_width, self.screen_height = event.size
+
+        # Define the size of the board on the screen. The remainder is reserved for controls and uncommitted figures
+        self.board_width = self.screen_height
+        self.board_height = self.screen_height
+        # Define the number of squares in the grid
+        self.rows, self.columns = self.board.size
+        # Define the size of each square
+        self.square_width = self.board_width // self.columns
+        self.square_height = self.board_height // self.rows
+
+        # Load the pre-saved board image
+        board_image_filename = self.save_board_image()
+        self.board_image = pygame.image.load(board_image_filename)
+        self.reset_screen()
+
+        self.create_grid_rects()
+        self.update_unit_rects()
+        
     def handle_mouse_click(self, pos):
         """
         Check if any buttons are clicked.
