@@ -340,7 +340,7 @@ class UI:
 
         self.create_grid_rects()
         self.update_unit_rects()
-        
+
     def handle_mouse_click(self, pos):
         """
         Check if any buttons are clicked.

@@ -84,7 +84,52 @@ class OPR_Firefight(engine.RuleSystem):
         # For now, the game is over after 4 turns
         return self.game_turn > 3
 
+    def get_available_actions(self, api):
+        """
+        Return available actions based on the current game state.
+        """
+        actions = []
+        
+        if api.controlled_unit:
+            # If a unit is activated, show actions for the unit
+            actions = ["Hold", "Advance", "Rush", "Charge"]
+        else:
+            # If no unit is selected or active, allow unit selection
+            actions = ["Select Unit"]
+        
+        return actions
+    
 
+    def apply_action(self, action: str, target=None):
+        """
+        Apply the selected action to the controlled unit.
+        """
+        match action:
+            case "Select Unit":
+                # Logic for selecting a unit (e.g., from available ones)
+                self.controlled_unit = self.select_unit_to_activate()
+
+            case "Hold":
+                print(f"{self.controlled_unit} holds position.")
+                self.controlled_unit.hold()
+
+            case "Advance":
+                print(f"{self.controlled_unit} advances.")
+                self.controlled_unit.advance()
+
+            case "Rush":
+                print(f"{self.controlled_unit} rushes.")
+                self.controlled_unit.rush()
+
+            case "Charge":
+                print(f"{self.controlled_unit} charges.")
+                self.controlled_unit.charge()
+
+            case _:
+                raise ValueError(f"Unknown action: {action}")
+        
+
+        
 class OPRWeapon:
     def __init__(self, name: str, range: int, attacks: int, damage: int):
         self.name = name
@@ -96,7 +141,7 @@ class OPRWeapon:
         return f"{self.name} (Range: {self.range}, Attacks: {self.attacks}, Damage: {self.damage})"
 
 class OPRUnit(engine.Unit):
-    def __init__(self, game: 'engine.Game', name: str, position: list[int]):
+    def __init__(self, game: 'engine.Game', name: str, position: list[int]=None):
         super().__init__(game, name, position)
 
         # State markers
@@ -106,6 +151,7 @@ class OPRUnit(engine.Unit):
 
         # Default stats
         self.movement: int = 6  # Standard movement for all units
+        self.movement_rush = self.movement * 2
         self.wounds: int = 1
 
         # Unit stats (must be edited)
@@ -121,3 +167,44 @@ class OPRUnit(engine.Unit):
     def __str__(self):
         weapons_str = ', '.join(str(weapon) for weapon in self.weapons)
         return f"{self.name} at {self.position} with weapons: {weapons_str}"
+    
+    def shoot(self, target = None):
+        if target is None:
+            target = self.game.api.select_unit()
+        print(f'{self} shoots at {target}.')
+    
+    def melee(self, target = None):
+        if target is None:
+            target = self.game.api.select_unit()
+        print(f'{self} attacks {target} in melee combat.')
+
+    def get_fields_in_range(self, rangeparam='movement'):
+        return self.game.board.in_range(self.position, self.__getattribute__(rangeparam))
+
+    def hold(self):
+        self.shoot()
+        self.game.api.next_step()
+
+    def advance(self):
+        movement_options = self.get_fields_in_range()
+        move_target = self.game.api.select_tile(options=movement_options)
+        self.place(move_target)
+        self.shoot()
+        self.game.api.next_step()
+
+    def rush(self):
+        movement_options = self.get_fields_in_range('movement_rush')
+        move_target = self.game.api.select_tile(options=movement_options)
+        self.place(move_target)
+        self.game.api.next_step()
+
+    def charge(self):
+        movement_options = self.get_fields_in_range('movement_rush')
+        move_target = self.game.api.select_tile(options=movement_options)
+
+        attack_target_options = self.game.board.in_range(move_target, 1.5)
+        attack_target = self.game.api.select_tile(options=attack_target_options)
+
+        self.place(move_target)
+        self.melee(attack_target)
+        self.game.api.next_step()

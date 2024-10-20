@@ -1,6 +1,8 @@
 import numpy as np
 from typing import TypedDict, List, Tuple, Dict, Generator, Any
 from abc import ABC, abstractmethod
+import asyncio
+from transitions import Machine
 
 
 class Game:
@@ -9,6 +11,7 @@ class Game:
         self.board = None
         self.unplaced_pieces = {}
         self.dead_units = {}
+        self.api=None
 
     def add_piece(self, piece, position = None):
         """
@@ -43,7 +46,8 @@ class Piece:
 
         if position is not None:
             self.place(position)
-
+        else:
+            self.game.unplaced_pieces[self.id] = self
     def __repr__(self):
         return f'{self.__class__.__name__}({self.id})'
     
@@ -54,6 +58,14 @@ class Piece:
         self.position = new_position
         self.board.map[*new_position] = self
         self.board.pieces[self.id] = self
+        self.game.unplaced_pieces.pop(self.id, None)
+
+    def remove(self, kill=True):
+        self.board.map[*self.position] = None
+        self.board.pieces.pop(self.id)
+        self.position = None
+        if kill:
+            self.game.dead_units[self.id] = self
 
     @staticmethod
     def make_id():
@@ -76,8 +88,6 @@ class Unit(Piece,ABC):
         self.movement = 0
         self.clickable = True
         
-    def get_fields_in_range(self, rangeparam='movement'):
-        return self.game.board.in_range(self.position, self.__getattribute__(rangeparam))
 
 
 class Board:
@@ -178,6 +188,11 @@ class RuleSystem(ABC):
     @abstractmethod
     def check_game_over(self) -> bool:
         pass
+
+    @abstractmethod
+    def get_available_actions(self, api):
+        pass
+
 class GameAPI:
     def __init__(self, game: 'Game', rule_system: RuleSystem):
         """
@@ -187,10 +202,27 @@ class GameAPI:
             game (Game): The Game object that contains the current state of the game.
         """
         self.game = game
+        self.game.api = self
         self.board = game.board
         self.controlled_unit = None
         self.rule_system = rule_system
         self.sequence = self.rule_system.game_sequence()  # Get the game sequence generator
+    
+
+        self.possible_states = ['select_unit', 'select_tile', 
+                                'select_action', 'initializing', 'game_over']
+        self.state = 'initializing'
+
+    def select_piece(self, message):
+        self.state = 'select_unit'
+        # wait for the player to click on something
+        print('select a unit please...')
+
+    def select_tile(self, message, options=None):
+        # options is a list of coordinates
+        # wait for the player to click on something
+        self.state = 'select_tile'
+        print('select a tile please...')
 
     def set_controlled_unit(self, unit: Unit):
         """
@@ -204,39 +236,9 @@ class GameAPI:
         else:
             raise ValueError("The controlled unit must be a valid Unit object.")
     
-    def get_available_actions(self):
-        """
-        Return available actions based on the current game state.
-        """
-        actions = []
-        
-        if self.controlled_unit:
-            # If a unit is activated, show actions for the unit
-            actions = ["Hold", "Advance", "Rush", "Charge"]
-        else:
-            # If no unit is selected or active, allow unit selection
-            actions = ["Select Unit"]
-        
-        return actions
-    
-    def apply_action(self, action: str, target=None):
-        """
-        Apply the selected action to the controlled unit.
-        """
-        if action == "Select Unit":
-            # Logic for selecting a unit (e.g., from available ones)
-            self.controlled_unit = self.select_unit_to_activate()
-        elif action == "Hold":
-            print(f"{self.controlled_unit} holds position.")
-        elif action == "Advance":
-            print(f"{self.controlled_unit} advances.")
-        elif action == "Rush":
-            print(f"{self.controlled_unit} rushes.")
-        elif action == "Charge":
-            print(f"{self.controlled_unit} charges.")
-        else:
-            raise ValueError(f"Unknown action: {action}")
-            
+    def get_available_actions(self, *args, **kwargs):
+        return self.rule_system.get_available_actions(self, *args,**kwargs)
+
     def clear_controlled_unit(self):
         """
         Clears the currently controlled unit.
@@ -253,4 +255,17 @@ class GameAPI:
         except StopIteration:
             return "Game finished"
 
-        
+class API():
+    states = ['wait_for_options', 'wait_for_action_sel',
+               'wait_for_unit_sel', 'wait_for_tile_sel']
+    def __init__(self, game: 'Game', rule_system: RuleSystem):
+        self.game = game
+        self.game.api = self
+        self.board = game.board
+        self.rule_system = rule_system
+        self.machine = Machine(model=self, states=API.states, initial='wait_for_options')
+
+        self.machine.add_transition(trigger='ready', source='*', dest='wait_for_options')
+        self.machine.add_transition(trigger='present_actions', source='wait_for_options', dest='wait_for_action_sel')
+        self.machine.add_transition(trigger='select_unit', source='wait_for_options', dest='wait_for_unit_sel')
+        self.machine.add_transition(trigger='select_tile', source='wait_for_options', dest='wait_for_tile_sel')
