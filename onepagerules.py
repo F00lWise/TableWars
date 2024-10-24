@@ -1,81 +1,92 @@
 
 import engine
 from typing import Generator, Any
+import random
+DEBUG = True
 
 class OPR_Firefight(engine.RuleSystem):
     ## A turn is done when all units on the board have taken their unit_turn
     ## The player turn and the unit_turn switch when the current unit has taken its turn
     
-    def game_sequence(self) -> Generator[Any, None, None]:
+    async def game_sequence(self):
         """
         Implements the OnePageRules game flow as a generator.
         Yields each step to be processed by the game engine or API.
         """
+        print("Game sequence started")
         # Determine initiative at the start of the game
-        self.active_player = self.determine_initiative()
-        yield f"Initiative determined: Player {self.active_player} goes first"
+        self.determine_initiative()
 
         while not self.check_game_over():
             self.game_turn += 1
-            yield f"Game turn {self.game_turn} begins"
+            print(f"Game turn {self.game_turn} begins")
 
             # Handle unit activations during the game turn
             while not self.all_units_activated():
-                unit = self.select_unit_to_activate(self.active_player)
-                yield f"Player {self.active_player} activates {unit}"
 
-                # Handle the unit's actions during its turn
-                self.unit_turn(unit)
-                yield f"Unit {unit} turn completed"
+                yet_to_act_units = [unit for unit in self.game.board.pieces.values() \
+                                    if (unit.player == self.game.active_player) and not unit.activated]
+                
+                if len(yet_to_act_units) > 0:
+                    self.api.select_unit(yet_to_act_units)
+                    self.controlled_unit = self.api.selection
+                    self.unit_turn(self.controlled_unit)
+                else:
+                    print(f"No units left to activate for player {self.game.active_player}")
+                print(f"Unit {self.controlled_unit} turn completed")
 
-                # Alternate player after each unit activation
-                self.active_player = self.get_next_player()
-            
-            # After each game turn, check if the game is over
-            if self.game_turn > 3:
-                yield "Game over"
-                break
-            
-            yield f"Game turn {self.game_turn} ends"
+                self.next_player()
+
+        print(f"Game turn {self.game_turn} ends")
+
+    async def unit_turn(self, unit: engine.Unit):
+        """
+        Handles the actions for a unit during its turn.
+        """
+        action_options = ["Hold", "Advance", "Rush", "Charge"]
+
+        await self.api.select_action(action_options)
+        assert self.api.selection in action_options
+
+        match self.api.selection:
+            case "Hold":
+                print(f"{unit} will hold position.")
+                await unit.hold()
+
+            case "Advance":
+                print(f"{unit} advances.")
+                await unit.advance()
+
+            case "Rush":
+                print(f"{unit} rushes.")
+                await unit.rush()
+
+            case "Charge":
+                print(f"{unit} charges.")
+                await unit.charge()
+
+            case _:
+                raise ValueError(f"Unknown action: {self.api.selection}")
+
 
     def determine_initiative(self) -> int:
         """
         Determines which player has the initiative.
         For now, we'll just return Player 1 for simplicity.
         """
-        return 1  # Player 1 wins initiative
+        active_player = random.choice(self.game.players)
+        self.game.api.set_active_player(active_player)
+        print(f"Initiative determined: Player {self.game.active_player} goes first")
 
-    def select_unit_to_activate(self, player: int) -> 'engine.Unit':
-        """
-        Selects the next unit to activate for the player.
-        """
-        # For now, return the first non-activated unit
-        for unit in self.game.board.pieces.values():
-            if not unit.activated:
-                unit.activated = True
-                return unit
-        return None
+    def next_player(self) -> int:
+        """ Sets the next player in the sequence. """
+        self.game.active_player = (self.game.active_player % len(self.game.players)) + 1
 
-    def unit_turn(self, unit: 'engine.Unit'):
-        """
-        Handles the actions for a unit during its turn.
-        """
-        # For simplicity, we'll just print that the unit moved
-        yield f"{unit} is moving"
-        # You could also yield any other actions the unit performs here
-    
     def all_units_activated(self) -> bool:
         """
         Returns True if all units have been activated this turn.
         """
         return all(unit.activated for unit in self.game.board.pieces.values())
-
-    def get_next_player(self) -> int:
-        """
-        Switches to the next player.
-        For now, we'll just alternate between Player 1 and 2.
-        """
-        return 1 if self.active_player == 2 else 2
 
     def check_game_over(self) -> bool:
         """
@@ -88,45 +99,13 @@ class OPR_Firefight(engine.RuleSystem):
         """
         Return available actions based on the current game state.
         """
-        actions = []
         
-        if api.controlled_unit:
-            # If a unit is activated, show actions for the unit
-            actions = ["Hold", "Advance", "Rush", "Charge"]
-        else:
-            # If no unit is selected or active, allow unit selection
-            actions = ["Select Unit"]
-        
-        return actions
-    
+        assert api.controlled_unit
+        # If a unit is activated, show actions for the unit
+        actions = ["Hold", "Advance", "Rush", "Charge"]
+ 
 
-    def apply_action(self, action: str, target=None):
-        """
-        Apply the selected action to the controlled unit.
-        """
-        match action:
-            case "Select Unit":
-                # Logic for selecting a unit (e.g., from available ones)
-                self.controlled_unit = self.select_unit_to_activate()
 
-            case "Hold":
-                print(f"{self.controlled_unit} holds position.")
-                self.controlled_unit.hold()
-
-            case "Advance":
-                print(f"{self.controlled_unit} advances.")
-                self.controlled_unit.advance()
-
-            case "Rush":
-                print(f"{self.controlled_unit} rushes.")
-                self.controlled_unit.rush()
-
-            case "Charge":
-                print(f"{self.controlled_unit} charges.")
-                self.controlled_unit.charge()
-
-            case _:
-                raise ValueError(f"Unknown action: {action}")
         
 
         
@@ -141,8 +120,8 @@ class OPRWeapon:
         return f"{self.name} (Range: {self.range}, Attacks: {self.attacks}, Damage: {self.damage})"
 
 class OPRUnit(engine.Unit):
-    def __init__(self, game: 'engine.Game', name: str, position: list[int]=None):
-        super().__init__(game, name, position)
+    def __init__(self, game: 'engine.Game', name: str, player: int, position: list[int]=None):
+        super().__init__(game, name, player, position)
 
         # State markers
         self.activated: bool = False  # Flag to track if the unit has been activated this turn
@@ -181,30 +160,49 @@ class OPRUnit(engine.Unit):
     def get_fields_in_range(self, rangeparam='movement'):
         return self.game.board.in_range(self.position, self.__getattribute__(rangeparam))
 
-    def hold(self):
-        self.shoot()
-        self.game.api.next_step()
+    async def hold(self):
+        await self.shoot()
 
-    def advance(self):
+    async def advance(self):
+        # Get movement options
         movement_options = self.get_fields_in_range()
-        move_target = self.game.api.select_tile(options=movement_options)
+        await self.api.select_tile(options=movement_options)
+        move_target = self.api.selection
+
+        # Confirm choice and apply movement
+        assert move_target in movement_options
         self.place(move_target)
-        self.shoot()
-        self.game.api.next_step()
 
-    def rush(self):
+        # Shoot
+        await self.shoot()
+
+    async def rush(self):
+        # Get movement options
         movement_options = self.get_fields_in_range('movement_rush')
-        move_target = self.game.api.select_tile(options=movement_options)
+        await self.api.select_tile(options=movement_options)
+        assert  self.api.selection in movement_options
+        move_target = self.api.selection
+
         self.place(move_target)
-        self.game.api.next_step()
 
-    def charge(self):
+    async def charge(self):
+        # Movement choice
         movement_options = self.get_fields_in_range('movement_rush')
-        move_target = self.game.api.select_tile(options=movement_options)
+        await self.api.select_tile(options=movement_options)
+        assert self.api.selection in movement_options
+        move_target = self.api.selection
 
+        # Attack choice
         attack_target_options = self.game.board.in_range(move_target, 1.5)
-        attack_target = self.game.api.select_tile(options=attack_target_options)
+        await self.game.api.select_tile(options=attack_target_options)
+        assert self.api.selection in attack_target_options
+        attack_target = self.api.selection
 
-        self.place(move_target)
-        self.melee(attack_target)
-        self.game.api.next_step()
+        # Confirm choices
+        self.api.select_option(options=['Confirm charge', 'Back'])
+        match self.api.selection:
+            case 'Confirm charge':
+                self.place(move_target)
+                self.melee(attack_target)
+            case 'Back':
+                await self.charge()

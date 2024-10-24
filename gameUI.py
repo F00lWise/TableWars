@@ -11,12 +11,12 @@ BLUE = (0, 0, 255)
 
 
 # Set up fonts
-font_size = 50
+font_size = 40
 
 pygame.init()
 
 class UI:                                                                                                    
-    def __init__(self, board: engine.Board, api: engine.GameAPI):
+    def __init__(self, board: engine.Board, api: engine.API):
             """
             Initializes the game UI and generates Rect objects for each grid coordinate.
             Args:
@@ -160,7 +160,7 @@ class UI:
 
             # Display game info and action buttons
             self.draw_game_info()
-            self.draw_action_buttons()
+            self.draw_option_buttons()
 
             # Get mouse position
             mouse_pos = pygame.mouse.get_pos()
@@ -280,15 +280,19 @@ class UI:
         Position the text relative to the screen size.
         """
         # Get relative positions for the text
-        turn_pos = self.relpos_to_pix(0.8, 0.05)  # 80% width, 5% height
-        player_pos = self.relpos_to_pix(0.8, 0.1)  # 80% width, 10% height
-        unit_pos = self.relpos_to_pix(0.8, 0.15)   # 80% width, 15% height
+        aspect_ratio = self.screen_height / self.screen_width
+
+        w = aspect_ratio + 0.05
+        turn_pos = self.relpos_to_pix(w, 0.05)  # 80% width, 5% height
+        player_pos = self.relpos_to_pix(w, 0.1)  # 80% width, 10% height
+        unit_pos = self.relpos_to_pix(w, 0.15)   # 80% width, 15% height
+        api_state_pos = self.relpos_to_pix(w, 0.2)   # 80% width, 20% height
 
         # Display game turn
         self.draw_text(f"Turn: {self.api.rule_system.game_turn}", turn_pos)
         
         # Display active player
-        self.draw_text(f"Player: {self.api.rule_system.active_player}", player_pos)
+        self.draw_text(f"Player: {self.api.get_active_player()}", player_pos)
         
         # Display selected unit if any
         if self.unit_selected:
@@ -296,26 +300,29 @@ class UI:
         else:
             self.draw_text("Selected Unit: None", unit_pos)
 
+        # Display API state
+        self.draw_text(f"API State: {self.api.state}", api_state_pos)
 
-    def draw_action_buttons(self):
+    def draw_option_buttons(self):
         """
         Draw the available action buttons based on the game state.
         The buttons are positioned relative to the screen size.
         """
         self.buttons.clear()
-        available_actions = self.api.get_available_actions()
 
         # Start y position at 20% of the screen height, and increment by 5% for each button
-        y_offset = 0.2
+        y_offset = 0.3
 
-        for action in available_actions:
+        for action in self.api.current_options:
             button_rect = pygame.Rect(
                 int(self.screen_width * 0.75),     # 75% of the screen width
                 int(self.screen_height * y_offset), # Start y offset, increasing
                 int(self.screen_width * 0.2),      # Button width (20% of screen width)
                 int(self.screen_height * 0.05)     # Button height (5% of screen height)
             )
-            self.create_button(action, button_rect, lambda act=action: self.api.apply_action(act))
+            def callback(self,act=action):
+                self.api.selection_done(act)
+            self.create_button(action, button_rect, callback)
             y_offset += 0.06  # Move down by 6% for the next button
 
     def handle_resize(self, event):
@@ -345,20 +352,24 @@ class UI:
         """
         Check if any buttons are clicked.
         """
-        # Check if a button is clicked
-        for button, callback in self.buttons:
-            if button.collidepoint(pos):
-                callback()
-        # Check if a unit is clicked
-        for unit in self.board.pieces.values():
-            if unit.clickable and unit.rect.collidepoint(pos):
-                self.unit_selected = unit
-                print(f'Selected unit: {unit}')
+        if self.api.state == 'wait_for_option_sel':
+            # Check if a button is clicked
+            for button, callback in self.buttons:
+                if button.collidepoint(pos):
+                    callback()
         
-        # # Check if a grid square is clicked
-        # for row in range(len(self.grid_rects)):
-        #     for col in range(len(self.grid_rects[row])):
-        #         if self.grid_rects[row][col].collidepoint(pos):
-        #             # If clicked on the unit, select it
-        #             if self.board.map[row, col]:
-        #                 self.unit_selected = self.board.map[row, col]
+        if self.api.state == 'wait_for_unit_sel':
+            # Check if a unit is clicked
+            for unit in self.board.pieces.values():
+                if unit.clickable and unit.rect.collidepoint(pos):
+                    self.unit_selected = unit
+                    self.api.selection_done(unit)
+                    print(f'Selected unit: {unit}')
+        
+        if self.api.state == 'wait_for_tile_sel':
+            # Check if a grid square is clicked
+            for row in range(len(self.grid_rects)):
+                for col in range(len(self.grid_rects[row])):
+                    if self.grid_rects[row][col].collidepoint(pos):
+                        self.api.selection_done((row, col))
+                        print(f'Selected tile: {row}, {col}')

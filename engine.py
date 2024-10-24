@@ -3,15 +3,20 @@ from typing import TypedDict, List, Tuple, Dict, Generator, Any
 from abc import ABC, abstractmethod
 import asyncio
 from transitions import Machine
-
+DEBUG = True
 
 class Game:
 
-    def __init__(self):
+    def __init__(self, players = [1,2]):
         self.board = None
         self.unplaced_pieces = {}
         self.dead_units = {}
-        self.api=None
+        self.api = None
+        self.rules = None
+        self.game_sequence = None
+        self.players = players
+        self.active_player = None
+
 
     def add_piece(self, piece, position = None):
         """
@@ -25,7 +30,13 @@ class Game:
         else:
             piece.place(position)
 
+    def set_rules(self, rules: 'RuleSystem'):
+        self.rules = rules
 
+    async def start_game(self):
+        print('Game Started')
+        assert self.rules is not None, 'No rules set for the game.'
+        await self.rules.game_sequence()
 
 class Piece:
     def __init__(self, game, name, position = None, height = 0, extent=[0,0]):
@@ -78,7 +89,7 @@ class Piece:
 # General unit class
 class Unit(Piece,ABC):
     
-    def __init__(self, game: Game, name: str, position = None,  img = None):
+    def __init__(self, game: Game, name: str, player:int, position = None,  img = None):
         super().__init__(game, name=name,position=position)
 
         self.health = None
@@ -87,6 +98,8 @@ class Unit(Piece,ABC):
         self.abilities = []
         self.movement = 0
         self.clickable = True
+        self.player = player
+
         
 
 
@@ -105,6 +118,7 @@ class Board:
         self.gridsize = gridsize
         # A dict of all units on the board identified by their id
         self.pieces = {}
+
 
         # The coordinates, containing pointers to every piece on the board
         self.map = np.full(self.size, None, dtype=object)
@@ -169,12 +183,13 @@ class Board:
 
 class RuleSystem(ABC):
     def __init__(self, game: 'Game'):
+        game.set_rules(self)
         self.game = game
         self.game_turn = 0
-        self.active_player = None
+        self.controlled_unit = None
 
     @abstractmethod
-    def game_sequence(self) -> Generator[Any, None, None]:
+    async def game_sequence(self) -> Generator[Any, None, None]:
         """
         A generator that defines the sequence of steps in the game.
         Yields the next step in the game.
@@ -193,79 +208,44 @@ class RuleSystem(ABC):
     def get_available_actions(self, api):
         pass
 
-class GameAPI:
-    def __init__(self, game: 'Game', rule_system: RuleSystem):
-        """
-        Initializes the API that mediates interactions between the UI/AI and the game engine.
-        
-        Args:
-            game (Game): The Game object that contains the current state of the game.
-        """
-        self.game = game
-        self.game.api = self
-        self.board = game.board
-        self.controlled_unit = None
-        self.rule_system = rule_system
-        self.sequence = self.rule_system.game_sequence()  # Get the game sequence generator
-    
-
-        self.possible_states = ['select_unit', 'select_tile', 
-                                'select_action', 'initializing', 'game_over']
-        self.state = 'initializing'
-
-    def select_piece(self, message):
-        self.state = 'select_unit'
-        # wait for the player to click on something
-        print('select a unit please...')
-
-    def select_tile(self, message, options=None):
-        # options is a list of coordinates
-        # wait for the player to click on something
-        self.state = 'select_tile'
-        print('select a tile please...')
-
-    def set_controlled_unit(self, unit: Unit):
-        """
-        Sets the current controlled unit (either by the player or the AI).
-        
-        Args:
-            unit (Unit): The unit to be controlled.
-        """
-        if isinstance(unit, Unit):
-            self.controlled_unit = unit
-        else:
-            raise ValueError("The controlled unit must be a valid Unit object.")
-    
-    def get_available_actions(self, *args, **kwargs):
-        return self.rule_system.get_available_actions(self, *args,**kwargs)
-
-    def clear_controlled_unit(self):
-        """
-        Clears the currently controlled unit.
-        """
-        self.controlled_unit = None
-
-    def next_step(self) -> str:
-        """
-        Advances the game by processing the next step in the sequence.
-        """
-        try:
-            step = next(self.sequence)
-            return step
-        except StopIteration:
-            return "Game finished"
 
 class API():
-    states = ['wait_for_options', 'wait_for_action_sel',
+    states = ['game_running', 'wait_for_option_sel',
                'wait_for_unit_sel', 'wait_for_tile_sel']
     def __init__(self, game: 'Game', rule_system: RuleSystem):
         self.game = game
-        self.game.api = self
-        self.board = game.board
         self.rule_system = rule_system
-        self.machine = Machine(model=self, states=API.states, initial='wait_for_options')
+        self.board = game.board
+        self.current_options = []
+        self.selection = None
 
-        self.machine.add_transition(trigger='ready', source='*', dest='wait_for_options')
-        self.machine.add_transition(trigger='present_actions', source='wait_for_options', dest='wait_for_action_sel')
-        self.machine.add_transition(trigger='select_unit', source='wait_for_options', dest='wait_for_unit_sel')
-        self.machine.add_transition(trigger='select_tile', source='wait_for_options', dest='wait_for_tile_sel')
+        # Some double pointers
+        self.game.api = self
+        self.rule_system.api = self
+
+
+
+        self.machine = Machine(model=self, states=API.states, initial='game_running')
+
+        # self.machine.add_transition(trigger='back', source='*', dest='wait_for_options')
+        # self.machine.add_transition(trigger='next_game_step', source='*', dest='wait_for_options', before='next_game_step')
+        
+        # The game requests an input from the UI
+        self.machine.add_transition(trigger='select_option', source='game_running', dest='wait_for_option_sel', before='set_options')
+        self.machine.add_transition(trigger='select_unit', source='game_running', dest='wait_for_unit_sel', before='set_options')
+        self.machine.add_transition(trigger='select_tile', source='game_running', dest='wait_for_tile_sel', before='set_options')
+        # The UI has provided the requested input and the game continures
+        self.machine.add_transition(trigger='selection_done', source=['wait_for_option_sel','wait_for_unit_sel','select_tile'],
+                                     dest='game_running', before='set_selection')
+
+
+    def set_options(self, options):
+        self.current_options = options
+    
+    def set_selection(self, selection):
+        self.selection = selection
+
+    def set_active_player(self, player):
+        self.game.active_player = player
+    def get_active_player(self):
+        return self.game.active_player
