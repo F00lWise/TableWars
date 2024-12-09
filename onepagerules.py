@@ -28,9 +28,11 @@ class OPR_Firefight(engine.RuleSystem):
                                     if (unit.player == self.game.active_player) and not unit.activated]
                 
                 if len(yet_to_act_units) > 0:
-                    self.api.select_unit(yet_to_act_units)
+                    await self.get_unit_selection(yet_to_act_units)
+                    assert self.api.selection in yet_to_act_units, f"Selected unit ({self.api.selection}) not in list of available units: {yet_to_act_units}"
                     self.controlled_unit = self.api.selection
-                    self.unit_turn(self.controlled_unit)
+
+                    await self.unit_turn(self.controlled_unit)
                 else:
                     print(f"No units left to activate for player {self.game.active_player}")
                 print(f"Unit {self.controlled_unit} turn completed")
@@ -45,8 +47,9 @@ class OPR_Firefight(engine.RuleSystem):
         """
         action_options = ["Hold", "Advance", "Rush", "Charge"]
 
-        await self.api.select_action(action_options)
-        assert self.api.selection in action_options
+        await self.get_option_selection(action_options)
+
+        assert self.api.selection in action_options, f"Invalid action selected: {self.api.selection}"
 
         match self.api.selection:
             case "Hold":
@@ -147,14 +150,25 @@ class OPRUnit(engine.Unit):
         weapons_str = ', '.join(str(weapon) for weapon in self.weapons)
         return f"{self.name} at {self.position} with weapons: {weapons_str}"
     
-    def shoot(self, target = None):
-        if target is None:
-            target = self.game.api.select_unit()
-        print(f'{self} shoots at {target}.')
+    async def shoot(self, target = None):
+        all_ranged_weapons = [weapon for weapon in self.weapons if weapon.range > 1]
+        weapon_shot = [False for _ in all_ranged_weapons]
+
+        while not all(weapon_shot):
+            await self.rules.select_option(all_ranged_weapons[~weapon_shot])
+            weapon_choice = self.rules.api.selection
+            assert weapon_choice in all_ranged_weapons
+
+            available_targets = self.game.board.in_range(self.position, weapon_choice.range)
+            target = await self.rules.select_unit(available_targets)
+            assert target in available_targets
     
-    def melee(self, target = None):
+            print(f'{self} shoots at {target}.')
+            #!TODO: Implement applying damage mechanics
+    
+    async def melee(self, target = None):
         if target is None:
-            target = self.game.api.select_unit()
+            target = await self.game.api.select_unit()
         print(f'{self} attacks {target} in melee combat.')
 
     def get_fields_in_range(self, rangeparam='movement'):
@@ -166,9 +180,9 @@ class OPRUnit(engine.Unit):
     async def advance(self):
         # Get movement options
         movement_options = self.get_fields_in_range()
-        await self.api.select_tile(options=movement_options)
-        move_target = self.api.selection
-
+        await self.rules.get_tile_selection(tile_options=movement_options)
+        move_target = self.rules.api.selection
+        
         # Confirm choice and apply movement
         assert move_target in movement_options
         self.place(move_target)
@@ -179,9 +193,9 @@ class OPRUnit(engine.Unit):
     async def rush(self):
         # Get movement options
         movement_options = self.get_fields_in_range('movement_rush')
-        await self.api.select_tile(options=movement_options)
-        assert  self.api.selection in movement_options
-        move_target = self.api.selection
+        await self.rules.get_tile_selection(tile_options=movement_options)
+        assert  self.rules.api.selection in movement_options
+        move_target = self.rules.api.selection
 
         self.place(move_target)
 
@@ -199,7 +213,7 @@ class OPRUnit(engine.Unit):
         attack_target = self.api.selection
 
         # Confirm choices
-        self.api.select_option(options=['Confirm charge', 'Back'])
+        await self.api.select_option(options=['Confirm charge', 'Back'])
         match self.api.selection:
             case 'Confirm charge':
                 self.place(move_target)

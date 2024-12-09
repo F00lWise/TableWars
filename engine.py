@@ -4,6 +4,11 @@ from abc import ABC, abstractmethod
 import asyncio
 from transitions import Machine
 DEBUG = True
+import logging, logging.config
+logging.config.dictConfig({
+    'version': 1,
+    'disable_existing_loggers': False,
+})
 
 class Game:
 
@@ -16,6 +21,7 @@ class Game:
         self.game_sequence = None
         self.players = players
         self.active_player = None
+        self.logger = logging.getLogger('game logger')
 
 
     def add_piece(self, piece, position = None):
@@ -38,7 +44,16 @@ class Game:
         assert self.rules is not None, 'No rules set for the game.'
         await self.rules.game_sequence()
 
+def make_id():
+    i = 0
+    while True:
+        yield f'p{i}'
+        i += 1
+id_generator = make_id() 
+
+
 class Piece:
+
     def __init__(self, game, name, position = None, height = 0, extent=[0,0]):
         """
         position: The position of the piece on the board
@@ -49,8 +64,9 @@ class Piece:
         self.position = position # for larger models, the position is the bottom left corner
         self.height = height
         self.extent = extent 
-        self.id = Piece.make_id()
+        self.id = next(id_generator)
         self.game = game
+        self.rules = game.rules
         self.board = self.game.board
         self.clickable = False
         self.rect = None
@@ -78,13 +94,7 @@ class Piece:
         if kill:
             self.game.dead_units[self.id] = self
 
-    @staticmethod
-    def make_id():
-        i = 0
-        while True:
-            yield f'p{i}'
-            i += 1
-    
+
 
 # General unit class
 class Unit(Piece,ABC):
@@ -182,6 +192,8 @@ class Board:
         
 
 class RuleSystem(ABC):
+    game: Game
+    api: 'API'
     def __init__(self, game: 'Game'):
         game.set_rules(self)
         self.game = game
@@ -196,10 +208,6 @@ class RuleSystem(ABC):
         """
         pass
 
-    # @abstractmethod
-    # def get_available_actions(self, unit) -> list:
-    #     pass
-
     @abstractmethod
     def check_game_over(self) -> bool:
         pass
@@ -208,21 +216,60 @@ class RuleSystem(ABC):
     def get_available_actions(self, api):
         pass
 
+    def set_api(self, api: 'API'):
+        self.api = api
+
+    async def get_unit_selection(self, selectable_units: list[Unit]):
+        self.api.select_unit(selectable_units)
+        await self.wait_for_input(selectable_units)
+
+    async def get_option_selection(self, options: list[str]):
+        self.api.select_option(options)
+        await self.wait_for_input(options)
+
+    async def get_tile_selection(self, tile_options: list[tuple[int, int]]):
+        self.api.select_tile(tile_options)
+        await self.wait_for_input(tile_options)
+
+    async def wait_for_input(self, options):
+        """
+        Waits for input from the user.
+        """
+        print('Waiting for input')
+        while not self.api.state == "game_running":
+            await asyncio.sleep(0.1)
+
+        # 
+        if self.api.selection not in options:
+            print(f'Invalid selection: {self.api.selection}. We shall try this again!')
+            match type(options[0]):
+                case str():
+                    self.api.select_option(options)
+                case tuple():
+                    self.api.select_tile(options)
+                case Unit():
+                    self.api.select_unit(options)
+            print(f'Invalid selection: {self.api.selection}')
+
+
+        return True
 
 class API():
+    rules: RuleSystem
+    game: Game
+    board: Board
     states = ['game_running', 'wait_for_option_sel',
                'wait_for_unit_sel', 'wait_for_tile_sel']
-    def __init__(self, game: 'Game', rule_system: RuleSystem):
+    def __init__(self, game: 'Game', rules: RuleSystem):
         self.game = game
-        self.rule_system = rule_system
+        self.rules = rules
         self.board = game.board
         self.current_options = []
         self.selection = None
 
         # Some double pointers
         self.game.api = self
-        self.rule_system.api = self
-
+        self.rules.set_api(self)
 
 
         self.machine = Machine(model=self, states=API.states, initial='game_running')
@@ -235,14 +282,19 @@ class API():
         self.machine.add_transition(trigger='select_unit', source='game_running', dest='wait_for_unit_sel', before='set_options')
         self.machine.add_transition(trigger='select_tile', source='game_running', dest='wait_for_tile_sel', before='set_options')
         # The UI has provided the requested input and the game continures
-        self.machine.add_transition(trigger='selection_done', source=['wait_for_option_sel','wait_for_unit_sel','select_tile'],
+        self.machine.add_transition(trigger='selection_done', source=['wait_for_option_sel','wait_for_unit_sel','wait_for_tile_sel'],
                                      dest='game_running', before='set_selection')
 
 
     def set_options(self, options):
+        if options == []:
+            raise ValueError('No options provided')
+        if options == 'do_not_set':
+            return
         self.current_options = options
     
     def set_selection(self, selection):
+        print(f'Selection made: {selection} of type {type(selection)}')
         self.selection = selection
 
     def set_active_player(self, player):

@@ -16,5 +16,13 @@ homo = opr.OPRUnit(game, 'Homo', player=2, position=[2,3])
 homo.movement = 5
 
 
-ui.run()
-asyncio.run(game.start_game())
+async def main():
+    # Run both tasks concurrently
+    ui_task = asyncio.create_task(ui.run())  # Assume ui.run() is async
+    game_task = asyncio.create_task(game.start_game())
+
+    # Wait for both tasks to finish
+    await asyncio.gather(ui_task, game_task)
+
+# Run the event loop
+asyncio.run(main())

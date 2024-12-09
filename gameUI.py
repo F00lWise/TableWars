@@ -1,5 +1,9 @@
 import pygame
 import engine
+import asyncio
+import logging
+
+DEBUG = True
 
 # Define colors
 WHITE = (255, 255, 255)
@@ -8,6 +12,9 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 BLUE = (0, 0, 255)
+DARKGREEN = (0, 128, 0)
+DARKGRAY = (169, 169, 169)
+DARKRED = (139, 0, 0)
 
 
 # Set up fonts
@@ -31,8 +38,9 @@ class UI:
             """
             self.board = board
             self.running = False            
-            self.unit_selected = None
+            self.unit_clicked = None
             self.api = api
+            self.logger = logging.getLogger('ui logger')
 
             pygame.display.set_caption("Table Wars")
 
@@ -68,7 +76,10 @@ class UI:
             # Update the screen
             pygame.display.flip()
 
+            self.logger.debug('UI initialized')
+
     def create_grid_rects(self):
+        #self.logger.debug('Creating grid rects')
         # Initialize grid_rects to store the Rect objects for each grid cell
         self.grid_rects = [[None for _ in range(self.columns)] for _ in range(self.rows)]
         # Generate Rect objects for each grid cell
@@ -84,6 +95,7 @@ class UI:
         """
         Generates Rect objects for each unit on the board.
         """
+        #self.logger.debug('Updating unit rects')
         # Generate Rect objects for each unit
         for unit in self.board.pieces.values():
             unit.rect = None
@@ -103,7 +115,7 @@ class UI:
         return (int(self.screen_width * x_ratio), int(self.screen_height * y_ratio))
 
     def save_board_image(self, filename="temp/board_grid.png"):
-
+        self.logger.debug('Saving board image')
         # Create a temporary surface to draw the board and grid
         board_surface = pygame.Surface((self.board_width, self.board_height))
 
@@ -124,6 +136,7 @@ class UI:
         """
         Resets the screen by loading the pre-saved board image.
         """
+        self.logger.debug('Resetting screen')
         # Create the screen
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.RESIZABLE)
 
@@ -147,9 +160,18 @@ class UI:
         for unit in self.board.pieces.values():
             position = unit.position
             letter = unit.name[0].upper()
-            self.draw_circle_with_letter(position, letter)
+            match unit.player:
+                case 1:
+                    color = DARKGREEN
+                case 2:
+                    color = DARKRED
+                case _:
+                    color = BLACK
+            
+            self.draw_circle_with_letter(position, letter, color=color)
 
-    def run(self):
+    async def run(self):
+        self.logger.info('Running UI')
         self.running = True
         while self.running:
             # Re-set the board
@@ -169,9 +191,9 @@ class UI:
             self.update_unit_rects()
             
             # Highlight the selected unit
-            if self.unit_selected:
-                self.highlight_square(self.unit_selected.position, RED, pixel_inwards=0)
-                self.highlight_movement(self.unit_selected)
+            if self.unit_clicked:
+                self.highlight_square(self.unit_clicked.position, RED, pixel_inwards=0)
+                self.highlight_movement(self.unit_clicked)
 
             # Check for mouse clicks on buttons
             for event in pygame.event.get():
@@ -186,21 +208,23 @@ class UI:
             pygame.display.flip()
 
             #pause for 0.1 seconds
-            pygame.time.delay(100)
-
+            pygame.time.delay(50)
+            await asyncio.sleep(0.05)
         pygame.quit()
 
     def highlight_hovered_square(self, mouse_pos):
-                    # Loop over each grid cell and check for collision
-            for row in range(len(self.grid_rects)):
-                for col in range(len(self.grid_rects[row])):
-                    if self.grid_rects[row][col].collidepoint(mouse_pos):
+        self.logger.debug('Highlighting hovered square')
+                # Loop over each grid cell and check for collision
+        for row in range(len(self.grid_rects)):
+            for col in range(len(self.grid_rects[row])):
+                if self.grid_rects[row][col].collidepoint(mouse_pos):
 
-                        # Highlight the square
-                        if self.board.map[row, col] is None:
-                            self.highlight_square((row, col), GREEN)
-                        else:
-                            self.highlight_square((row, col), YELLOW, pixel_inwards=3)
+                    # Highlight the square
+                    if self.board.map[row, col] is None:
+                        self.highlight_square((row, col), GREEN)
+                    else:
+                        self.highlight_square((row, col), YELLOW, pixel_inwards=3)
+
     # Function to draw a circle with a letter in a specific grid square
     def draw_circle_with_letter(self,  grid_position, letter,
                                  font=pygame.font.SysFont(None, font_size),
@@ -255,6 +279,7 @@ class UI:
         pygame.draw.rect(self.screen, color, (*top_left, self.square_width-2*pixel_inwards, self.square_height-2*pixel_inwards), 3)
 
     def highlight_movement(self, unit:engine.Unit):
+        self.logger.debug('Highlighting movement')
         fields = unit.get_fields_in_range()
         for field in fields:
             self.highlight_square(field, BLUE, pixel_inwards=5)
@@ -263,13 +288,15 @@ class UI:
         """
         Draw text on the screen at the specified position.
         """
-        text_surface = self.font.render(text, True, color)
+        display = text if type(text) == str else text.__repr__()
+        text_surface = self.font.render(display, True, color)
         self.screen.blit(text_surface, pos)
 
     def create_button(self, text, rect, callback):
         """
         Create a button with a callback when clicked.
         """
+        self.logger.debug('Creating button')
         pygame.draw.rect(self.screen, GREEN, rect)
         self.draw_text(text, (rect.x + 5, rect.y + 5))
         self.buttons.append((rect, callback))
@@ -279,24 +306,25 @@ class UI:
         Display the current game turn, active player, and selected unit.
         Position the text relative to the screen size.
         """
+        self.logger.debug('Drawing game info')
         # Get relative positions for the text
         aspect_ratio = self.screen_height / self.screen_width
 
-        w = aspect_ratio + 0.05
+        w = aspect_ratio + 0.01
         turn_pos = self.relpos_to_pix(w, 0.05)  # 80% width, 5% height
         player_pos = self.relpos_to_pix(w, 0.1)  # 80% width, 10% height
         unit_pos = self.relpos_to_pix(w, 0.15)   # 80% width, 15% height
         api_state_pos = self.relpos_to_pix(w, 0.2)   # 80% width, 20% height
 
         # Display game turn
-        self.draw_text(f"Turn: {self.api.rule_system.game_turn}", turn_pos)
+        self.draw_text(f"Turn: {self.api.rules.game_turn}", turn_pos)
         
         # Display active player
         self.draw_text(f"Player: {self.api.get_active_player()}", player_pos)
         
         # Display selected unit if any
-        if self.unit_selected:
-            self.draw_text(f"Selected Unit: {self.unit_selected.name}", unit_pos)
+        if self.unit_clicked:
+            self.draw_text(f"Selected Unit: {self.unit_clicked.name}", unit_pos)
         else:
             self.draw_text("Selected Unit: None", unit_pos)
 
@@ -308,27 +336,30 @@ class UI:
         Draw the available action buttons based on the game state.
         The buttons are positioned relative to the screen size.
         """
+        self.logger.debug('Drawing option buttons')
         self.buttons.clear()
 
         # Start y position at 20% of the screen height, and increment by 5% for each button
         y_offset = 0.3
 
         for action in self.api.current_options:
-            button_rect = pygame.Rect(
-                int(self.screen_width * 0.75),     # 75% of the screen width
-                int(self.screen_height * y_offset), # Start y offset, increasing
-                int(self.screen_width * 0.2),      # Button width (20% of screen width)
-                int(self.screen_height * 0.05)     # Button height (5% of screen height)
-            )
-            def callback(self,act=action):
-                self.api.selection_done(act)
-            self.create_button(action, button_rect, callback)
-            y_offset += 0.06  # Move down by 6% for the next button
+            if isinstance(action, str): # exclude coordinates
+                button_rect = pygame.Rect(
+                    int(self.screen_width * 0.75),     # 75% of the screen width
+                    int(self.screen_height * y_offset), # Start y offset, increasing
+                    int(self.screen_width * 0.2),      # Button width (20% of screen width)
+                    int(self.screen_height * 0.05)     # Button height (5% of screen height)
+                )
+                def callback(self=self,act=action):
+                    self.api.selection_done(act)
+                self.create_button(action, button_rect, callback)
+                y_offset += 0.06  # Move down by 6% for the next button
 
     def handle_resize(self, event):
         """
         Handle screen resize events.
         """
+        self.logger.info('Handling screen resize')
         self.screen_width, self.screen_height = event.size
 
         # Define the size of the board on the screen. The remainder is reserved for controls and uncommitted figures
@@ -352,6 +383,7 @@ class UI:
         """
         Check if any buttons are clicked.
         """
+        self.logger.debug('Handling mouse click')
         if self.api.state == 'wait_for_option_sel':
             # Check if a button is clicked
             for button, callback in self.buttons:
@@ -362,7 +394,7 @@ class UI:
             # Check if a unit is clicked
             for unit in self.board.pieces.values():
                 if unit.clickable and unit.rect.collidepoint(pos):
-                    self.unit_selected = unit
+                    self.unit_clicked = unit
                     self.api.selection_done(unit)
                     print(f'Selected unit: {unit}')
         
