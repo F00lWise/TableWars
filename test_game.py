@@ -10,10 +10,10 @@ api = engine.API(game, opr_rules)
 ui = gameUI.UI(board, api)
 
 dude = opr.OPRUnit(game, 'Dude', player=1, position=[5,3])
-dude.movement = 1.5
+dude.set_movement(1.5)
 
 homo = opr.OPRUnit(game, 'Homo', player=2, position=[2,3])
-homo.movement = 5
+homo.set_movement(4)
 
 
 async def main():

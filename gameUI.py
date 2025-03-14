@@ -193,12 +193,15 @@ class UI:
             # Highlight the selected unit
             if self.unit_clicked:
                 self.highlight_square(self.unit_clicked.position, RED, pixel_inwards=0)
-                self.highlight_movement(self.unit_clicked)
+                #self.highlight_movement(self.unit_clicked)
+                if self.api.state == 'wait_for_tile_sel':
+                    for option in self.api.current_options:
+                        self.highlight_square(option, BLUE, pixel_inwards=5)
 
             # Check for mouse clicks on buttons
             for event in pygame.event.get():
                 match event.type:
-                    case  pygame.MOUSEBUTTONDOWN:
+                    case pygame.MOUSEBUTTONDOWN:
                         self.handle_mouse_click(pygame.mouse.get_pos())
                     case pygame.QUIT:
                         self.running = False
@@ -208,8 +211,8 @@ class UI:
             pygame.display.flip()
 
             #pause for 0.1 seconds
-            pygame.time.delay(50)
-            await asyncio.sleep(0.05)
+            pygame.time.delay(100)
+            await asyncio.sleep(0.001)
         pygame.quit()
 
     def highlight_hovered_square(self, mouse_pos):
@@ -278,9 +281,9 @@ class UI:
         # Draw a rectangle to highlight the square
         pygame.draw.rect(self.screen, color, (*top_left, self.square_width-2*pixel_inwards, self.square_height-2*pixel_inwards), 3)
 
-    def highlight_movement(self, unit:engine.Unit):
+    def highlight_movement(self, unit:engine.Unit, parameter='interaction_range'):
         self.logger.debug('Highlighting movement')
-        fields = unit.get_fields_in_range()
+        fields = unit.get_fields_in_range(parameter)
         for field in fields:
             self.highlight_square(field, BLUE, pixel_inwards=5)
 

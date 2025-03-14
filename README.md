@@ -1,10 +1,9 @@
 
-# TODO: Make unit tests?
-# TODO: API class written but no interaction yet
+# TODO: Rush should highlight double movement and mirror code from advance
+# TODO: Attacking!
+
 # TODO: concrete rules should go into their own file
-# TODO: concrete units 
-# TODO: Refresh full screen always?
-# TODO: Grid vs continuous?
+
 
 # Implementation
 

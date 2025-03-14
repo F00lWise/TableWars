@@ -3,6 +3,7 @@ from typing import TypedDict, List, Tuple, Dict, Generator, Any
 from abc import ABC, abstractmethod
 import asyncio
 from transitions import Machine
+import copy
 DEBUG = True
 import logging, logging.config
 logging.config.dictConfig({
@@ -71,6 +72,8 @@ class Piece:
         self.clickable = False
         self.rect = None
 
+        self.interaction_range = 0 # The range of the highlight around the piece when selected
+
         if position is not None:
             self.place(position)
         else:
@@ -86,6 +89,8 @@ class Piece:
         self.board.map[*new_position] = self
         self.board.pieces[self.id] = self
         self.game.unplaced_pieces.pop(self.id, None)
+
+        self.interaction_range = 0 # After setting to a new position, I do not expect a new interaction
 
     def remove(self, kill=True):
         self.board.map[*self.position] = None
@@ -236,10 +241,12 @@ class RuleSystem(ABC):
         Waits for input from the user.
         """
         print('Waiting for input')
+
+        # If the game is not running, wait for the game to resume
         while not self.api.state == "game_running":
             await asyncio.sleep(0.1)
 
-        # 
+        # If the selection is not in the options, request a new selection
         if self.api.selection not in options:
             print(f'Invalid selection: {self.api.selection}. We shall try this again!')
             match type(options[0]):
@@ -248,9 +255,7 @@ class RuleSystem(ABC):
                 case tuple():
                     self.api.select_tile(options)
                 case Unit():
-                    self.api.select_unit(options)
-            print(f'Invalid selection: {self.api.selection}')
-
+                    self.api.select_unit(options)            
 
         return True
 
@@ -299,5 +304,6 @@ class API():
 
     def set_active_player(self, player):
         self.game.active_player = player
+
     def get_active_player(self):
         return self.game.active_player

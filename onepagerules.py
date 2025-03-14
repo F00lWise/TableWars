@@ -29,7 +29,9 @@ class OPR_Firefight(engine.RuleSystem):
                 
                 if len(yet_to_act_units) > 0:
                     await self.get_unit_selection(yet_to_act_units)
-                    assert self.api.selection in yet_to_act_units, f"Selected unit ({self.api.selection}) not in list of available units: {yet_to_act_units}"
+                    while not self.api.selection in yet_to_act_units:
+                        print(f"Selected unit ({self.api.selection}) not in list of available units: {yet_to_act_units}")
+                        await self.get_unit_selection(yet_to_act_units)
                     self.controlled_unit = self.api.selection
 
                     await self.unit_turn(self.controlled_unit)
@@ -143,6 +145,10 @@ class OPRUnit(engine.Unit):
 
         self.special_rules: list[str] = []  # List to hold any special rules for the unit
 
+    def set_movement(self, movement: int):
+        self.movement = movement
+        self.movement_rush = movement * 2
+        
     def add_weapon(self, weapon: OPRWeapon):
         self.weapons.append(weapon)
 
@@ -178,13 +184,16 @@ class OPRUnit(engine.Unit):
         await self.shoot()
 
     async def advance(self):
+
+        self.interaction_range = self.movement
+
         # Get movement options
         movement_options = self.get_fields_in_range()
-        await self.rules.get_tile_selection(tile_options=movement_options)
-        move_target = self.rules.api.selection
-        
-        # Confirm choice and apply movement
-        assert move_target in movement_options
+        move_target = None
+        while (not move_target in movement_options) or (self.board.is_occupied(move_target, self.extent) ):
+            await self.rules.get_tile_selection(tile_options=movement_options)
+            move_target = self.rules.api.selection        
+
         self.place(move_target)
 
         # Shoot
@@ -192,31 +201,47 @@ class OPRUnit(engine.Unit):
 
     async def rush(self):
         # Get movement options
+        self.interaction_range = self.movement_rush
         movement_options = self.get_fields_in_range('movement_rush')
-        await self.rules.get_tile_selection(tile_options=movement_options)
-        assert  self.rules.api.selection in movement_options
-        move_target = self.rules.api.selection
+        move_target = None
+        while (not move_target in movement_options) or (self.board.is_occupied(move_target, self.extent) ):
+            await self.rules.get_tile_selection(tile_options=movement_options)
+            move_target = self.rules.api.selection        
 
         self.place(move_target)
 
     async def charge(self):
+        if DEBUG:     
+            print(f"{self} charges. Select move target")
+
         # Movement choice
+        self.interaction_range = self.movement_rush
         movement_options = self.get_fields_in_range('movement_rush')
-        await self.api.select_tile(options=movement_options)
-        assert self.api.selection in movement_options
-        move_target = self.api.selection
+        move_target = None
+        while (not move_target in movement_options) or (self.board.is_occupied(move_target, self.extent) ):
+            await self.rules.get_tile_selection(tile_options=movement_options)
+            move_target = self.rules.api.selection        
+
+        if DEBUG:
+            print(f"Move target: {move_target}, selecting attack target")
 
         # Attack choice
         attack_target_options = self.game.board.in_range(move_target, 1.5)
-        await self.game.api.select_tile(options=attack_target_options)
-        assert self.api.selection in attack_target_options
-        attack_target = self.api.selection
+        attack_target = None
+        while not attack_target in attack_target_options:
+            await self.rules.get_unit_selection(selectable_units=attack_target_options)
+            attack_target = self.rules.api.selection
 
+        if DEBUG:
+            print(f"Attack target: {attack_target}, confirming charge")
+    
         # Confirm choices
-        await self.api.select_option(options=['Confirm charge', 'Back'])
-        match self.api.selection:
+        await self.rules.api.select_option(options=['Confirm charge', 'Back'])
+        match self.rules.api.selection:
             case 'Confirm charge':
                 self.place(move_target)
                 self.melee(attack_target)
             case 'Back':
                 await self.charge()
+            case _:
+                raise ValueError(f"Invalid button selection: {self.rules.api.selection}")
